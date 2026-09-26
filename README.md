@@ -22,6 +22,7 @@ checksums when you provide one.
 - **Checksum verification** (SHA-256, SHA-1, MD5). A file is shown as **Verified** only after a real comparison. Files that fail verification are never moved to Completed.
 - **History** of completed, failed, and cancelled downloads. Removing an entry never deletes a completed file unless you tick "Also delete the file from disk".
 - **Desktop notifications** for completed downloads, failed downloads, and storage problems. Each type can be turned off.
+- **Game search.** Search games by name (PS4, PS5 or all platforms) and open a details page with cover art, description, genres, developer and publisher, release dates, Metacritic score and ratings, screenshots and trailers. Game data comes from [RAWG](https://rawg.io/apidocs). Add your free API key on the Games page or in Settings.
 - **Themes:** dark (default), light, or follow the system.
 
 ## Tech stack

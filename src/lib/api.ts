@@ -2,6 +2,9 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AppError,
   DownloadRecord,
+  GameDetails,
+  GameSearchPage,
+  PlatformFilter,
   Settings,
   StorageFolder,
   StorageInfo,
@@ -46,4 +49,8 @@ export const api = {
   resumeAll: () => call<void>("resume_all"),
   reveal: (id: string) => call<void>("reveal_download", { id }),
   openFolder: (folder: StorageFolder) => call<void>("open_storage_folder", { folder }),
+  searchGames: (query: string, page: number, platform: PlatformFilter) =>
+    call<GameSearchPage>("search_games", { query, page, platform }),
+  getGame: (id: number) => call<GameDetails>("get_game", { id }),
+  openExternal: (url: string) => call<void>("open_external", { url }),
 };

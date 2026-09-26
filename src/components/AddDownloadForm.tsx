@@ -6,7 +6,8 @@ import { ErrorNotice } from "./ErrorNotice";
 import { Icon } from "./Icon";
 
 /** URL input. Nothing is contacted until the user presses Download. */
-export function AddDownloadForm() {
+/** `bare` drops the card chrome, for placing the form inside another panel. */
+export function AddDownloadForm({ bare = false }: { bare?: boolean }) {
   const [url, setUrl] = useState("");
   const [checksum, setChecksum] = useState("");
   const [showChecksum, setShowChecksum] = useState(false);
@@ -33,7 +34,7 @@ export function AddDownloadForm() {
   };
 
   return (
-    <form className="card add-form" onSubmit={submit}>
+    <form className={bare ? "add-form" : "card add-form"} onSubmit={submit}>
       <div className="add-row">
         <label className="url-field">
           <Icon name="link" size={18} className="url-icon" />

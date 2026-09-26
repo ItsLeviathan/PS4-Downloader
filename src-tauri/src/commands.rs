@@ -131,13 +131,11 @@ pub async fn get_game(manager: Mgr<'_>, db: State<'_, GameDb>, id: u64) -> AppRe
     db.details(&manager.settings().rawg_api_key, id).await
 }
 
-/// Opens an https:// page (a game's website or its RAWG page) in the default browser.
+/// Opens a web page (a game's website or its RAWG page) in the default browser.
+/// Only http(s) links are accepted, so this can't launch local files or programs.
 #[tauri::command]
 pub fn open_external(app: AppHandle, url: String) -> AppResult<()> {
     let parsed = crate::downloader::http::validate_url(&url)?;
-    if parsed.scheme() != "https" {
-        return Err(AppError::new(ErrorCode::UnsupportedProtocol, "Only https:// pages can be opened."));
-    }
     app.opener()
         .open_url(parsed.as_str(), None::<&str>)
         .map_err(|e| AppError::new(ErrorCode::Io, "The web browser could not be opened.").with_details(e.to_string()))

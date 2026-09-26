@@ -42,3 +42,11 @@ const dateFormat = new Intl.DateTimeFormat(undefined, {
 export function formatDate(ms: number | null | undefined): string {
   return ms ? dateFormat.format(new Date(ms)) : "—";
 }
+
+/** A calendar date from an API ("2015-03-24") as "Mar 24, 2015". */
+export function formatReleaseDate(isoDate: string | null | undefined): string {
+  if (!isoDate) return "";
+  const [y, m, d] = isoDate.split("-").map(Number);
+  if (!y || !m || !d) return isoDate;
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}

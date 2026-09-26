@@ -36,6 +36,7 @@ export type ErrorCode =
   | "invalidState"
   | "unknownDownload"
   | "rangeNotHonored"
+  | "apiKey"
   | "internal";
 
 export interface AppError {
@@ -95,6 +96,7 @@ export interface Settings {
   notifyFailed: boolean;
   notifyStorage: boolean;
   theme: Theme;
+  rawgApiKey: string;
 }
 
 export interface StorageInfo {
@@ -118,4 +120,65 @@ export interface StorageUsage {
 
 export type StorageFolder = "root" | "completed" | "incomplete";
 
-export type Page = "dashboard" | "downloads" | "completed" | "history" | "storage" | "settings";
+export type Page = "dashboard" | "games" | "downloads" | "completed" | "history" | "storage" | "settings";
+
+export type PlatformFilter = "ps4" | "ps5" | "all";
+
+export interface GameSummary {
+  id: number;
+  slug: string;
+  name: string;
+  released: string | null;
+  tba: boolean;
+  image: string | null;
+  rating: number;
+  ratingsCount: number;
+  metacritic: number | null;
+  genres: string[];
+  platforms: string[];
+}
+
+export interface GameSearchPage {
+  results: GameSummary[];
+  count: number;
+  nextPage: number | null;
+}
+
+export interface PlatformRelease {
+  name: string;
+  releasedAt: string | null;
+}
+
+export interface Trailer {
+  name: string;
+  preview: string | null;
+  url: string;
+}
+
+export interface GameDetails {
+  id: number;
+  slug: string;
+  name: string;
+  alternativeNames: string[];
+  description: string;
+  released: string | null;
+  tba: boolean;
+  image: string | null;
+  imageAdditional: string | null;
+  website: string | null;
+  rating: number;
+  ratingTop: number;
+  ratingsCount: number;
+  metacritic: number | null;
+  playtime: number;
+  esrb: string | null;
+  genres: string[];
+  platforms: PlatformRelease[];
+  developers: string[];
+  publishers: string[];
+  stores: string[];
+  tags: string[];
+  screenshots: string[];
+  trailers: Trailer[];
+  rawgUrl: string;
+}

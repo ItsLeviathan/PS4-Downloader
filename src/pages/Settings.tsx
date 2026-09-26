@@ -1,8 +1,11 @@
 import type { ReactNode } from "react";
+import logo from "../assets/logo.png";
+import { ApiKeyForm, GetKeyLink } from "../components/ApiKeyForm";
 import { Button } from "../components/Button";
 import { PageHeader } from "../components/Layout";
 import { useStorageActions } from "../hooks/useStorageActions";
 import { api } from "../lib/api";
+import { APP_NAME } from "../lib/app";
 import { runAction, useApp } from "../stores/app";
 import type { Settings as SettingsType, Theme } from "../types";
 
@@ -98,6 +101,16 @@ export function Settings() {
       </section>
 
       <section className="card settings-group">
+        <h2>Game search</h2>
+        <Row label="RAWG API key" description="Used to look up game details. Stored only on this PC.">
+          <div className="stack key-setting">
+            <ApiKeyForm />
+            <GetKeyLink />
+          </div>
+        </Row>
+      </section>
+
+      <section className="card settings-group">
         <h2>Notifications</h2>
         <Row label="Download completed">
           <Toggle label="Download completed" checked={settings.notifyCompleted} onChange={(notifyCompleted) => save({ notifyCompleted })} />
@@ -115,6 +128,15 @@ export function Settings() {
         <Row label="Theme">
           <Choice label="Theme" options={THEMES} value={settings.theme} onChange={(theme) => save({ theme })} />
         </Row>
+      </section>
+
+      <section className="card about">
+        <img src={logo} alt={APP_NAME} width={120} height={120} />
+        <div>
+          <p className="setting-label">{APP_NAME}</p>
+          <p className="muted small">Version {__APP_VERSION__}</p>
+          <p className="muted small">Game data provided by RAWG.</p>
+        </div>
       </section>
     </div>
   );

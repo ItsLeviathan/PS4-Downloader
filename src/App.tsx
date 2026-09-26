@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import logoMark from "./assets/logo-mark.png";
 import { ErrorNotice } from "./components/ErrorNotice";
 import { Toasts } from "./components/Layout";
 import { Sidebar } from "./components/Sidebar";
@@ -7,6 +8,7 @@ import { useTheme } from "./hooks/useTheme";
 import { Completed } from "./pages/Completed";
 import { Dashboard } from "./pages/Dashboard";
 import { Downloads } from "./pages/Downloads";
+import { Games } from "./pages/Games";
 import { History } from "./pages/History";
 import { Settings } from "./pages/Settings";
 import { Storage } from "./pages/Storage";
@@ -34,7 +36,13 @@ export function App() {
     };
   }, []);
 
-  if (!ready) return <div className="boot" aria-busy="true" />;
+  if (!ready) {
+    return (
+      <div className="boot" aria-busy="true">
+        <img src={logoMark} alt="" />
+      </div>
+    );
+  }
 
   return (
     <div className="app">
@@ -44,6 +52,7 @@ export function App() {
         {/* The dashboard and storage pages show this inside the storage card. */}
         {storage && page !== "dashboard" && page !== "storage" && <StorageWarning storage={storage} />}
         {page === "dashboard" && <Dashboard onNavigate={setPage} />}
+        {page === "games" && <Games onNavigate={setPage} />}
         {page === "downloads" && <Downloads />}
         {page === "completed" && <Completed />}
         {page === "history" && <History />}

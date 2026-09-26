@@ -44,21 +44,24 @@ export const DownloadCard = memo(function DownloadCard({ record, position }: { r
 
       <ProgressBar value={percent} status={record.status} />
 
-      <div className="dl-stats">
-        <span className="dl-percent">{percent === null ? "—" : `${percent}%`}</span>
-        <span className="dl-stat">
-          {formatBytes(downloaded)} / {total === null ? "Unknown size" : formatBytes(total)}
-        </span>
-        {transferring && live && (
-          <>
-            <span className="dl-stat dl-speed">{formatSpeed(live.speed)}</span>
-            <span className="dl-stat">ETA {formatEta(live.eta)}</span>
-          </>
-        )}
-        {record.status === "verifying" && <span className="dl-stat">Checking file integrity…</span>}
-        {record.connections > 1 && record.status !== "completed" && (
-          <span className="dl-stat muted">{record.connections} connections</span>
-        )}
+      <div className="dl-foot">
+        <div className="dl-stats">
+          <span className="dl-percent">{percent === null ? "—" : `${percent}%`}</span>
+          <span className="dl-stat">
+            {formatBytes(downloaded)} / {total === null ? "Unknown size" : formatBytes(total)}
+          </span>
+          {transferring && live && (
+            <>
+              <span className="dl-stat dl-speed">{formatSpeed(live.speed)}</span>
+              <span className="dl-stat">ETA {formatEta(live.eta)}</span>
+            </>
+          )}
+          {record.status === "verifying" && <span className="dl-stat">Checking file integrity…</span>}
+          {record.connections > 1 && record.status !== "completed" && (
+            <span className="dl-stat muted">{record.connections} connections</span>
+          )}
+        </div>
+        <DownloadActions record={record} />
       </div>
 
       {record.status === "retrying" && record.retry && (
@@ -69,8 +72,6 @@ export const DownloadCard = memo(function DownloadCard({ record, position }: { r
         </p>
       )}
       {showError && record.error && <ErrorNotice error={record.error} tone={record.status === "paused" ? "warning" : "error"} />}
-
-      <DownloadActions record={record} />
     </article>
   );
 });
