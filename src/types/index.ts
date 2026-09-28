@@ -120,28 +120,32 @@ export interface StorageUsage {
 
 export type StorageFolder = "root" | "completed" | "incomplete";
 
-export type Page = "dashboard" | "games" | "downloads" | "completed" | "history" | "storage" | "settings";
+export type Page = "dashboard" | "games" | "homebrew" | "downloads" | "completed" | "history" | "storage" | "settings";
 
 export type PlatformFilter = "ps4" | "ps5" | "all";
 
+export interface CriticScore {
+  /** Out of 100. */
+  score: number;
+  source: string;
+}
+
 export interface GameSummary {
-  id: number;
-  slug: string;
+  /** Wikidata item id, e.g. "Q17154554". */
+  id: string;
   name: string;
+  summary: string | null;
+  /** "YYYY-MM-DD", "YYYY-MM" or "YYYY". */
   released: string | null;
-  tba: boolean;
   image: string | null;
-  rating: number;
-  ratingsCount: number;
-  metacritic: number | null;
+  criticScore: CriticScore | null;
   genres: string[];
-  platforms: string[];
+  consoles: string[];
 }
 
 export interface GameSearchPage {
   results: GameSummary[];
-  count: number;
-  nextPage: number | null;
+  nextOffset: number | null;
 }
 
 export interface PlatformRelease {
@@ -155,30 +159,70 @@ export interface Trailer {
   url: string;
 }
 
-export interface GameDetails {
-  id: number;
-  slug: string;
-  name: string;
-  alternativeNames: string[];
-  description: string;
-  released: string | null;
-  tba: boolean;
-  image: string | null;
-  imageAdditional: string | null;
-  website: string | null;
+export type Block = { type: "heading"; text: string } | { type: "text"; text: string };
+
+export interface Section {
+  title: string;
+  blocks: Block[];
+}
+
+export interface RawgRating {
   rating: number;
   ratingTop: number;
   ratingsCount: number;
-  metacritic: number | null;
-  playtime: number;
-  esrb: string | null;
+  url: string;
+}
+
+export interface GameDetails {
+  id: string;
+  name: string;
+  summary: string | null;
+  sections: Section[];
+  released: string | null;
+  image: string | null;
+  backdrop: string | null;
+  website: string | null;
+  wikipediaUrl: string | null;
+  wikidataUrl: string;
+  criticScore: CriticScore | null;
   genres: string[];
   platforms: PlatformRelease[];
   developers: string[];
   publishers: string[];
-  stores: string[];
-  tags: string[];
+  series: string[];
+  modes: string[];
+  ageRatings: string[];
+  alternativeNames: string[];
+  consoles: string[];
   screenshots: string[];
   trailers: Trailer[];
-  rawgUrl: string;
+  rawg: RawgRating | null;
+}
+
+export type HomebrewCategory = "essentials" | "tools" | "payloads";
+
+export interface HomebrewAsset {
+  name: string;
+  size: number;
+  url: string;
+  /** "sha256:<hex>" when GitHub publishes a digest for the file. */
+  checksum: string | null;
+}
+
+export interface HomebrewRelease {
+  version: string;
+  publishedAt: string | null;
+  notes: string | null;
+  url: string;
+  assets: HomebrewAsset[];
+}
+
+export interface HomebrewApp {
+  id: string;
+  name: string;
+  category: HomebrewCategory;
+  description: string;
+  repoUrl: string;
+  release: HomebrewRelease | null;
+  error: AppError | null;
 }

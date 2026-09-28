@@ -3,7 +3,8 @@
 use crate::downloader::manager::{Manager, StorageFolder, StorageUsage};
 use crate::downloader::DownloadRecord;
 use crate::error::{AppError, AppResult, ErrorCode};
-use crate::games::{self, GameDb, GameDetails, GameSearchPage};
+use crate::games::{GameDb, GameDetails, GameSearchPage, PlatformFilter};
+use crate::homebrew::{HomebrewApp, HomebrewCatalog};
 use crate::settings::Settings;
 use crate::storage::StorageInfo;
 use std::sync::Arc;
@@ -102,33 +103,25 @@ pub fn open_storage_folder(app: AppHandle, manager: Mgr<'_>, folder: StorageFold
     app.opener().open_path(path.display().to_string(), None::<&str>).map_err(open_failed)
 }
 
-#[derive(Debug, Clone, Copy, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum PlatformFilter {
-    Ps4,
-    Ps5,
-    All,
-}
-
 #[tauri::command]
 pub async fn search_games(
-    manager: Mgr<'_>,
     db: State<'_, GameDb>,
     query: String,
-    page: u32,
+    offset: u32,
     platform: PlatformFilter,
 ) -> AppResult<GameSearchPage> {
-    let platforms: &[u32] = match platform {
-        PlatformFilter::Ps4 => &[games::PLATFORM_PS4],
-        PlatformFilter::Ps5 => &[games::PLATFORM_PS5],
-        PlatformFilter::All => &[],
-    };
-    db.search(&manager.settings().rawg_api_key, &query, page, platforms).await
+    db.search(&query, offset, platform).await
 }
 
 #[tauri::command]
-pub async fn get_game(manager: Mgr<'_>, db: State<'_, GameDb>, id: u64) -> AppResult<GameDetails> {
-    db.details(&manager.settings().rawg_api_key, id).await
+pub async fn get_game(manager: Mgr<'_>, db: State<'_, GameDb>, id: String) -> AppResult<GameDetails> {
+    db.details(&id, &manager.settings().rawg_api_key).await
+}
+
+/// PS4 homebrew with each project's newest official GitHub release.
+#[tauri::command]
+pub async fn list_homebrew(catalog: State<'_, HomebrewCatalog>, refresh: bool) -> AppResult<Vec<HomebrewApp>> {
+    catalog.list(refresh).await
 }
 
 /// Opens a web page (a game's website or its RAWG page) in the default browser.

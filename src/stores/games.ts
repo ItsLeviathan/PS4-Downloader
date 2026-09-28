@@ -6,20 +6,19 @@ interface GamesState {
   query: string;
   platform: PlatformFilter;
   results: GameSummary[];
-  count: number;
-  nextPage: number | null;
+  nextOffset: number | null;
   searching: boolean;
   loadingMore: boolean;
   error: AppError | null;
   /** Game shown on the details view; null shows the search results. */
-  selectedId: number | null;
-  details: Record<number, GameDetails>;
+  selectedId: string | null;
+  details: Record<string, GameDetails>;
   detailsError: AppError | null;
   setQuery: (query: string) => void;
   setPlatform: (platform: PlatformFilter) => void;
   search: () => Promise<void>;
   loadMore: () => Promise<void>;
-  open: (id: number) => Promise<void>;
+  open: (id: string) => Promise<void>;
   close: () => void;
 }
 
@@ -30,8 +29,7 @@ export const useGames = create<GamesState>((set, get) => ({
   query: "",
   platform: "ps4",
   results: [],
-  count: 0,
-  nextPage: null,
+  nextOffset: null,
   searching: false,
   loadingMore: false,
   error: null,
@@ -46,14 +44,14 @@ export const useGames = create<GamesState>((set, get) => ({
     const { query, platform } = get();
     const seq = ++searchSeq;
     if (!query.trim()) {
-      set({ results: [], count: 0, nextPage: null, searching: false, error: null });
+      set({ results: [], nextOffset: null, searching: false, error: null });
       return;
     }
     set({ searching: true, error: null });
     try {
-      const page = await api.searchGames(query, 1, platform);
+      const page = await api.searchGames(query, 0, platform);
       if (seq !== searchSeq) return;
-      set({ results: page.results, count: page.count, nextPage: page.nextPage, searching: false });
+      set({ results: page.results, nextOffset: page.nextOffset, searching: false });
     } catch (err) {
       if (seq !== searchSeq) return;
       set({ error: toAppError(err), searching: false });
@@ -61,18 +59,18 @@ export const useGames = create<GamesState>((set, get) => ({
   },
 
   loadMore: async () => {
-    const { query, platform, nextPage, loadingMore } = get();
-    if (!nextPage || loadingMore) return;
+    const { query, platform, nextOffset, loadingMore } = get();
+    if (nextOffset === null || loadingMore) return;
     const seq = searchSeq;
     set({ loadingMore: true });
     try {
-      const page = await api.searchGames(query, nextPage, platform);
+      const page = await api.searchGames(query, nextOffset, platform);
       if (seq !== searchSeq) return;
       set((s) => {
         const seen = new Set(s.results.map((g) => g.id));
         return {
           results: [...s.results, ...page.results.filter((g) => !seen.has(g.id))],
-          nextPage: page.nextPage,
+          nextOffset: page.nextOffset,
           loadingMore: false,
         };
       });
@@ -95,3 +93,8 @@ export const useGames = create<GamesState>((set, get) => ({
 
   close: () => set({ selectedId: null, detailsError: null }),
 }));
+
+/** Forgets cached details, e.g. after the RAWG key changes. */
+export function clearGameDetails() {
+  useGames.setState({ details: {} });
+}

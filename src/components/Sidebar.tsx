@@ -17,6 +17,7 @@ const GROUPS: { label: string; items: NavItem[] }[] = [
     items: [
       { page: "dashboard", label: "Home", icon: "dashboard" },
       { page: "games", label: "Games", icon: "gamepad" },
+      { page: "homebrew", label: "Homebrew", icon: "package" },
     ],
   },
   {

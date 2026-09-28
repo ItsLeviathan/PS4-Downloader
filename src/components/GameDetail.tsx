@@ -3,16 +3,16 @@ import { api } from "../lib/api";
 import { formatReleaseDate } from "../lib/format";
 import { runAction } from "../stores/app";
 import { useGames } from "../stores/games";
-import type { GameDetails, Page } from "../types";
+import type { GameDetails, Page, Section } from "../types";
 import { AddDownloadForm } from "./AddDownloadForm";
 import { Button } from "./Button";
 import { ErrorNotice } from "./ErrorNotice";
 import { Icon } from "./Icon";
 import { Metascore } from "./Metascore";
 
-const DESCRIPTION_PREVIEW = 700;
+const openLink = (url: string) => runAction(() => api.openExternal(url));
 
-export function GameDetail({ id, onNavigate }: { id: number; onNavigate: (page: Page) => void }) {
+export function GameDetail({ id, onNavigate }: { id: string; onNavigate: (page: Page) => void }) {
   const game = useGames((s) => s.details[id]);
   const error = useGames((s) => s.detailsError);
   const { close, open } = useGames.getState();
@@ -45,11 +45,17 @@ export function GameDetail({ id, onNavigate }: { id: number; onNavigate: (page: 
 
   if (!game) {
     return (
-      <div className="page">
+      <div className="page game-page">
         {back}
-        <div className="game-loading" aria-busy="true">
-          <span className="spinner" aria-hidden="true" />
-          <span className="muted">Loading game details…</span>
+        <div className="game-hero skeleton" aria-busy="true" aria-label="Loading game details">
+          <div className="game-hero-content">
+            <div className="game-poster" />
+            <div className="game-hero-text">
+              <span className="skeleton-line wide" />
+              <span className="skeleton-line" />
+              <span className="skeleton-line short" />
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -61,7 +67,7 @@ export function GameDetail({ id, onNavigate }: { id: number; onNavigate: (page: 
       <Hero game={game} />
       <div className="game-layout">
         <div className="stack game-main">
-          <About game={game} />
+          <Article sections={game.sections} />
           <Media game={game} />
         </div>
         <aside className="stack game-side">
@@ -70,9 +76,10 @@ export function GameDetail({ id, onNavigate }: { id: number; onNavigate: (page: 
       </div>
       <section className="card stack game-download">
         <div className="card-head">
-          <h2 className="card-title">
-            <Icon name="download" size={18} /> Download
-          </h2>
+          <div className="card-title">
+            <Icon name="download" size={18} />
+            <h2>Download</h2>
+          </div>
           <Button size="sm" variant="ghost" onClick={() => onNavigate("downloads")}>
             View downloads
           </Button>
@@ -83,54 +90,61 @@ export function GameDetail({ id, onNavigate }: { id: number; onNavigate: (page: 
         </p>
         <AddDownloadForm bare />
       </section>
-      <p className="muted small attribution">
-        Game data from{" "}
-        <button type="button" className="link-button" onClick={() => runAction(() => api.openExternal(game.rawgUrl))}>
-          RAWG
-        </button>
-        .
-      </p>
+      <Attribution game={game} />
     </div>
   );
 }
 
 function Hero({ game }: { game: GameDetails }) {
-  const released = game.released ? formatReleaseDate(game.released) : game.tba ? "To be announced" : null;
+  const background = game.backdrop ?? game.image;
+  const released = formatReleaseDate(game.released);
   return (
     <header className="game-hero">
-      {game.image && <img className="game-hero-bg" src={game.image} alt="" />}
+      {background && <img className={`game-hero-bg${game.backdrop ? "" : " is-blurred"}`} src={background} alt="" />}
       <div className="game-hero-shade" />
       <div className="game-hero-content">
-        <div className="chips">
-          {game.genres.map((g) => (
-            <span key={g} className="chip">
-              {g}
-            </span>
-          ))}
+        <div className="game-poster">
+          {game.image ? <img src={game.image} alt={`${game.name} cover art`} /> : <Icon name="gamepad" size={40} />}
         </div>
-        <h1 className="game-title">{game.name}</h1>
-        <div className="game-hero-stats">
-          {game.metacritic !== null && (
-            <span className="hero-stat">
-              <Metascore score={game.metacritic} large /> Metascore
-            </span>
+        <div className="game-hero-text">
+          {game.consoles.length > 0 && (
+            <div className="console-badges static">
+              {game.consoles.map((c) => (
+                <span key={c} className="console-badge">
+                  {c}
+                </span>
+              ))}
+            </div>
           )}
-          {game.rating > 0 && (
-            <span className="hero-stat">
-              <Icon name="star" size={16} className="star" />
-              <strong>{game.rating.toFixed(1)}</strong>/{game.ratingTop || 5}
-              <span className="hero-muted">({game.ratingsCount.toLocaleString()} ratings)</span>
-            </span>
-          )}
-          {released && (
-            <span className="hero-stat">
-              <Icon name="history" size={16} /> {released}
-            </span>
-          )}
-          {game.playtime > 0 && (
-            <span className="hero-stat">
-              <Icon name="clock" size={16} /> About {game.playtime} h to play
-            </span>
+          <h1 className="game-title">{game.name}</h1>
+          {game.summary && <p className="game-summary">{capitalize(game.summary)}</p>}
+          <div className="game-hero-stats">
+            {game.criticScore && (
+              <span className="hero-stat">
+                <Metascore critic={game.criticScore} large /> {game.criticScore.source}
+              </span>
+            )}
+            {game.rawg && (
+              <span className="hero-stat">
+                <Icon name="star" size={16} className="star" />
+                <strong>{game.rawg.rating.toFixed(1)}</strong>/{game.rawg.ratingTop}
+                <span className="hero-muted">({game.rawg.ratingsCount.toLocaleString()} ratings)</span>
+              </span>
+            )}
+            {released && (
+              <span className="hero-stat">
+                <Icon name="history" size={16} /> {released}
+              </span>
+            )}
+          </div>
+          {game.genres.length > 0 && (
+            <div className="chips">
+              {game.genres.map((g) => (
+                <span key={g} className="chip">
+                  {capitalize(g)}
+                </span>
+              ))}
+            </div>
           )}
         </div>
       </div>
@@ -138,33 +152,31 @@ function Hero({ game }: { game: GameDetails }) {
   );
 }
 
-function About({ game }: { game: GameDetails }) {
-  const [expanded, setExpanded] = useState(false);
-  const text = game.description || "RAWG doesn't have a description for this game yet.";
-  const long = text.length > DESCRIPTION_PREVIEW;
-  const shown = long && !expanded ? `${text.slice(0, DESCRIPTION_PREVIEW).trimEnd()}…` : text;
+function Article({ sections }: { sections: Section[] }) {
+  const [active, setActive] = useState(0);
+  const section = sections[active] ?? sections[0];
+  if (!section) {
+    return (
+      <section className="card stack">
+        <h2 className="card-title-text">About</h2>
+        <p className="muted">Wikipedia doesn't have an article about this game yet.</p>
+      </section>
+    );
+  }
   return (
-    <section className="card stack">
-      <h2 className="card-title">About</h2>
-      <div className="game-description">
-        {shown.split(/\n+/).map((para, i) => (
-          <p key={i}>{para}</p>
-        ))}
-      </div>
-      {long && (
-        <button type="button" className="link-button" onClick={() => setExpanded((e) => !e)} aria-expanded={expanded}>
-          {expanded ? "Show less" : "Read more"}
-        </button>
-      )}
-      {game.tags.length > 0 && (
-        <div className="chips">
-          {game.tags.map((t) => (
-            <span key={t} className="chip chip-quiet">
-              {t}
-            </span>
+    <section className="card article">
+      {sections.length > 1 && (
+        <div className="tabs" role="tablist" aria-label="Article sections">
+          {sections.map((s, i) => (
+            <button key={s.title} type="button" role="tab" aria-selected={i === active} onClick={() => setActive(i)}>
+              {s.title}
+            </button>
           ))}
         </div>
       )}
+      <div className="article-body" role="tabpanel" aria-label={section.title}>
+        {section.blocks.map((b, i) => (b.type === "heading" ? <h3 key={i}>{b.text}</h3> : <p key={i}>{b.text}</p>))}
+      </div>
     </section>
   );
 }
@@ -175,7 +187,10 @@ function Media({ game }: { game: GameDetails }) {
   if (!shots.length && !game.trailers.length) return null;
   return (
     <section className="card stack">
-      <h2 className="card-title">Screenshots{game.trailers.length > 0 && " & trailers"}</h2>
+      <h2 className="card-title-text">
+        {game.trailers.length > 0 ? "Trailers & images" : "Images"}
+        <span className="section-count">{shots.length + game.trailers.length}</span>
+      </h2>
       {game.trailers.length > 0 && (
         <div className="trailers">
           {game.trailers.slice(0, 2).map((t) => (
@@ -190,7 +205,7 @@ function Media({ game }: { game: GameDetails }) {
         <ul className="shots">
           {shots.map((src, i) => (
             <li key={src}>
-              <button type="button" className="shot" onClick={() => setViewing(i)} aria-label={`View screenshot ${i + 1}`}>
+              <button type="button" className="shot" onClick={() => setViewing(i)} aria-label={`View image ${i + 1}`}>
                 <img src={src} alt="" loading="lazy" />
               </button>
             </li>
@@ -221,17 +236,21 @@ function Lightbox({ images, index, onChange, onClose }: { images: string[]; inde
         if (e.key === "ArrowLeft") step(-1);
       }}
     >
-      <img src={images[index]} alt={`Screenshot ${index + 1} of ${images.length}`} />
+      <img src={images[index]} alt={`Image ${index + 1} of ${images.length}`} />
       <div className="lightbox-bar">
-        <Button size="sm" variant="secondary" onClick={() => step(-1)} aria-label="Previous screenshot">
-          ‹
-        </Button>
+        {images.length > 1 && (
+          <Button size="sm" variant="secondary" onClick={() => step(-1)} aria-label="Previous image">
+            ‹
+          </Button>
+        )}
         <span className="small">
           {index + 1} / {images.length}
         </span>
-        <Button size="sm" variant="secondary" onClick={() => step(1)} aria-label="Next screenshot">
-          ›
-        </Button>
+        {images.length > 1 && (
+          <Button size="sm" variant="secondary" onClick={() => step(1)} aria-label="Next image">
+            ›
+          </Button>
+        )}
         <Button size="sm" variant="secondary" icon="x" onClick={() => ref.current?.close()} aria-label="Close" autoFocus />
       </div>
     </dialog>
@@ -250,7 +269,7 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
 function Facts({ game }: { game: GameDetails }) {
   return (
     <section className="card stack">
-      <h2 className="card-title">Details</h2>
+      <h2 className="card-title-text">Details</h2>
       <dl className="facts">
         {game.platforms.length > 0 && (
           <Fact label="Platforms">
@@ -258,26 +277,63 @@ function Facts({ game }: { game: GameDetails }) {
               {game.platforms.map((p) => (
                 <li key={p.name}>
                   {p.name}
-                  {p.releasedAt && p.releasedAt !== game.released && (
-                    <span className="muted small"> · {formatReleaseDate(p.releasedAt)}</span>
-                  )}
+                  {p.releasedAt && <span className="muted small"> · {formatReleaseDate(p.releasedAt)}</span>}
                 </li>
               ))}
             </ul>
           </Fact>
         )}
-        {game.released && <Fact label="Release date">{formatReleaseDate(game.released)}</Fact>}
         {game.developers.length > 0 && <Fact label="Developer">{game.developers.join(", ")}</Fact>}
         {game.publishers.length > 0 && <Fact label="Publisher">{game.publishers.join(", ")}</Fact>}
-        {game.esrb && <Fact label="Age rating">ESRB {game.esrb}</Fact>}
-        {game.stores.length > 0 && <Fact label="Available on">{game.stores.join(", ")}</Fact>}
+        {game.series.length > 0 && <Fact label="Series">{game.series.join(", ")}</Fact>}
+        {game.modes.length > 0 && <Fact label="Game modes">{game.modes.map(capitalize).join(", ")}</Fact>}
+        {game.ageRatings.length > 0 && <Fact label="Age rating">{game.ageRatings.join(", ")}</Fact>}
         {game.alternativeNames.length > 0 && <Fact label="Also known as">{game.alternativeNames.join(", ")}</Fact>}
       </dl>
-      {game.website && (
-        <Button size="sm" icon="globe" onClick={() => runAction(() => api.openExternal(game.website!))}>
-          Official website
-        </Button>
-      )}
+      <div className="fact-links">
+        {game.wikipediaUrl && (
+          <Button size="sm" icon="globe" onClick={() => openLink(game.wikipediaUrl!)}>
+            Wikipedia
+          </Button>
+        )}
+        {game.website && (
+          <Button size="sm" icon="link" onClick={() => openLink(game.website!)}>
+            Official site
+          </Button>
+        )}
+      </div>
     </section>
   );
+}
+
+function Attribution({ game }: { game: GameDetails }) {
+  return (
+    <p className="muted small attribution">
+      Text and images from{" "}
+      {game.wikipediaUrl ? (
+        <button type="button" className="link-button" onClick={() => openLink(game.wikipediaUrl!)}>
+          Wikipedia
+        </button>
+      ) : (
+        "Wikipedia"
+      )}{" "}
+      (CC BY-SA), facts from{" "}
+      <button type="button" className="link-button" onClick={() => openLink(game.wikidataUrl)}>
+        Wikidata
+      </button>
+      {game.rawg && (
+        <>
+          , ratings and media from{" "}
+          <button type="button" className="link-button" onClick={() => openLink(game.rawg!.url)}>
+            RAWG
+          </button>
+        </>
+      )}
+      .
+    </p>
+  );
+}
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }

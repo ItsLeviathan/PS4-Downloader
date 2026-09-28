@@ -22,7 +22,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://media.rawg.io; media-src https://steamcdn-a.akamaihd.net https://media.rawg.io; connect-src ipc: http://ipc.localhost"
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://upload.wikimedia.org https://media.rawg.io; media-src https://steamcdn-a.akamaihd.net https://media.rawg.io; connect-src ipc: http://ipc.localhost"
     }
   },
   "bundle": {

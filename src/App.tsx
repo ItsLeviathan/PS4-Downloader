@@ -10,6 +10,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { Downloads } from "./pages/Downloads";
 import { Games } from "./pages/Games";
 import { History } from "./pages/History";
+import { Homebrew } from "./pages/Homebrew";
 import { Settings } from "./pages/Settings";
 import { Storage } from "./pages/Storage";
 import { useApp } from "./stores/app";
@@ -53,6 +54,7 @@ export function App() {
         {storage && page !== "dashboard" && page !== "storage" && <StorageWarning storage={storage} />}
         {page === "dashboard" && <Dashboard onNavigate={setPage} />}
         {page === "games" && <Games onNavigate={setPage} />}
+        {page === "homebrew" && <Homebrew onNavigate={setPage} />}
         {page === "downloads" && <Downloads />}
         {page === "completed" && <Completed />}
         {page === "history" && <History />}

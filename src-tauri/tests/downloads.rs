@@ -310,3 +310,23 @@ async fn missing_storage_is_reported() {
     assert!(info.available);
     assert!(h.manager.add(&server.url("/range/10/x.bin"), None).await.is_ok());
 }
+
+/// Downloads a real homebrew release from GitHub, checksum included:
+/// `cargo test --test downloads -- --ignored github`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore]
+async fn github_homebrew_release() {
+    let catalog = ps4_downloader_lib::homebrew::HomebrewCatalog::new();
+    let apps = catalog.list(true).await.unwrap();
+    let apollo = apps.iter().find(|a| a.id == "apollo").and_then(|a| a.release.as_ref()).expect("Apollo release");
+    let asset = apollo.assets.iter().find(|a| a.name.ends_with(".pkg")).expect("Apollo pkg");
+
+    let h = Harness::new(4).await;
+    let rec = h.manager.add(&asset.url, asset.checksum.as_deref()).await.unwrap();
+    assert_eq!(rec.file_name, asset.name);
+    let done = h.wait_for(&rec.id, Status::Completed, 300).await;
+    assert_eq!(done.downloaded, asset.size);
+    if asset.checksum.is_some() {
+        assert_eq!(done.integrity, Integrity::Verified);
+    }
+}

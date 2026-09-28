@@ -1,16 +1,15 @@
-import { useEffect, useRef } from "react";
-import { ApiKeyForm, GetKeyLink } from "../components/ApiKeyForm";
+  import { useEffect, useRef } from "react";
 import { Button } from "../components/Button";
 import { ErrorNotice } from "../components/ErrorNotice";
 import { GameDetail } from "../components/GameDetail";
 import { Icon } from "../components/Icon";
-import { Metascore } from "../components/Metascore";
 import { EmptyState, PageHeader } from "../components/Layout";
-import { useApp } from "../stores/app";
+import { Metascore } from "../components/Metascore";
 import { useGames } from "../stores/games";
 import type { GameSummary, Page, PlatformFilter } from "../types";
 
-const SEARCH_DELAY_MS = 400;
+const SEARCH_DELAY_MS = 350;
+const SKELETON_CARDS = 10;
 const PLATFORMS: { value: PlatformFilter; label: string }[] = [
   { value: "ps4", label: "PS4" },
   { value: "ps5", label: "PS5" },
@@ -18,40 +17,18 @@ const PLATFORMS: { value: PlatformFilter; label: string }[] = [
 ];
 
 export function Games({ onNavigate }: { onNavigate: (page: Page) => void }) {
-  const hasKey = useApp((s) => !!s.settings?.rawgApiKey);
   const selectedId = useGames((s) => s.selectedId);
-
   if (selectedId !== null) return <GameDetail id={selectedId} onNavigate={onNavigate} />;
-
   return (
     <div className="page">
-      <PageHeader title="Games" subtitle="Search for a game to see its details before you download." />
-      {hasKey ? <GameSearch /> : <KeySetup />}
+      <PageHeader title="Games" subtitle="Search any game to see its full details before you download." />
+      <GameSearch />
     </div>
   );
 }
 
-function KeySetup() {
-  return (
-    <section className="card key-card">
-      <div className="key-card-icon">
-        <Icon name="key" size={22} />
-      </div>
-      <div className="stack">
-        <h2>Connect the game database</h2>
-        <p className="muted">
-          Game search uses RAWG, a free video game database. Create a free account, copy your API key, and paste it
-          here. You only need to do this once.
-        </p>
-        <ApiKeyForm />
-        <GetKeyLink />
-      </div>
-    </section>
-  );
-}
-
 function GameSearch() {
-  const { query, platform, results, count, nextPage, searching, loadingMore, error } = useGames();
+  const { query, platform, results, nextOffset, searching, loadingMore, error } = useGames();
   const { setQuery, setPlatform, search, loadMore, open } = useGames.getState();
   const inputRef = useRef<HTMLInputElement>(null);
   const first = useRef(true);
@@ -72,6 +49,7 @@ function GameSearch() {
   }, [query, platform]);
 
   const trimmed = query.trim();
+  const showSkeleton = searching && results.length === 0;
 
   return (
     <>
@@ -104,37 +82,41 @@ function GameSearch() {
         </div>
       </div>
 
-      {error && (
-        <div className="stack">
-          <ErrorNotice error={error} />
-          {error.code === "apiKey" && <ApiKeyForm onSaved={search} />}
-        </div>
-      )}
+      {error && <ErrorNotice error={error} />}
 
       {!trimmed ? (
         <EmptyState icon="gamepad" title="Find a game">
-          Type a name to see matching games with cover art, release date, ratings and more.
+          Type a name to see matching games with box art, release date, critic scores and more.
         </EmptyState>
+      ) : showSkeleton ? (
+        <ul className="game-grid" aria-busy="true" aria-label="Loading results">
+          {Array.from({ length: SKELETON_CARDS }, (_, i) => (
+            <li key={i} className="game-card skeleton" aria-hidden="true">
+              <div className="game-cover" />
+              <div className="game-card-body">
+                <span className="skeleton-line" />
+                <span className="skeleton-line short" />
+              </div>
+            </li>
+          ))}
+        </ul>
       ) : results.length === 0 ? (
         !searching &&
         !error && (
           <EmptyState icon="search" title={`No games found for “${trimmed}”`}>
-            Check the spelling, or try All platforms.
+            Check the spelling, try the full title, or switch to All platforms.
           </EmptyState>
         )
       ) : (
         <>
-          <p className="muted small results-count" aria-live="polite">
-            {count.toLocaleString()} {count === 1 ? "result" : "results"}
-          </p>
-          <ul className="game-grid">
+          <ul className={`game-grid${searching ? " is-refreshing" : ""}`}>
             {results.map((game) => (
               <li key={game.id}>
                 <GameCard game={game} onOpen={() => open(game.id)} />
               </li>
             ))}
           </ul>
-          {nextPage && (
+          {nextOffset !== null && (
             <div className="load-more">
               <Button busy={loadingMore} onClick={loadMore}>
                 Show more results
@@ -144,28 +126,38 @@ function GameSearch() {
         </>
       )}
 
-      <p className="muted small attribution">Game data from RAWG.</p>
+      <p className="muted small attribution">Game information from Wikipedia and Wikidata.</p>
     </>
   );
 }
 
 function GameCard({ game, onOpen }: { game: GameSummary; onOpen: () => void }) {
-  const year = game.released?.slice(0, 4) ?? (game.tba ? "TBA" : null);
+  const year = game.released?.slice(0, 4);
   return (
     <button type="button" className="game-card" onClick={onOpen}>
       <div className="game-cover">
         {game.image ? (
           <img src={game.image} alt="" loading="lazy" />
         ) : (
-          <Icon name="gamepad" size={32} className="game-cover-placeholder" />
+          <span className="game-cover-placeholder">
+            <Icon name="gamepad" size={30} />
+            <span>{game.name}</span>
+          </span>
         )}
-        {game.metacritic !== null && <Metascore score={game.metacritic} />}
+        {game.criticScore && <Metascore critic={game.criticScore} />}
+        {game.consoles.length > 0 && (
+          <span className="console-badges">
+            {game.consoles.map((c) => (
+              <span key={c} className="console-badge">
+                {c}
+              </span>
+            ))}
+          </span>
+        )}
       </div>
       <div className="game-card-body">
         <p className="game-card-title">{game.name}</p>
-        <p className="muted small game-card-meta">
-          {[year, game.genres.slice(0, 2).join(", ")].filter(Boolean).join(" · ")}
-        </p>
+        <p className="muted small game-card-meta">{[year, game.genres[0]].filter(Boolean).join(" · ")}</p>
       </div>
     </button>
   );

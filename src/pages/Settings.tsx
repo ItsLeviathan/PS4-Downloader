@@ -102,7 +102,7 @@ export function Settings() {
 
       <section className="card settings-group">
         <h2>Game search</h2>
-        <Row label="RAWG API key" description="Used to look up game details. Stored only on this PC.">
+        <Row label="RAWG API key (optional)" description="Game search works without it. With a key, game pages also show trailers, more screenshots and user ratings. Stored only on this PC.">
           <div className="stack key-setting">
             <ApiKeyForm />
             <GetKeyLink />
@@ -135,7 +135,7 @@ export function Settings() {
         <div>
           <p className="setting-label">{APP_NAME}</p>
           <p className="muted small">Version {__APP_VERSION__}</p>
-          <p className="muted small">Game data provided by RAWG.</p>
+          <p className="muted small">Game information from Wikipedia and Wikidata.</p>
         </div>
       </section>
     </div>

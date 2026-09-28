@@ -1,28 +1,57 @@
-//! Game search and details from the RAWG video game database (https://rawg.io/apidocs).
+//! Game search and details. Wikidata supplies the facts and Wikipedia the
+//! description, cover art and screenshots, so no account is needed. With a RAWG
+//! API key, trailers, more screenshots and user ratings are added on top.
 //! Only metadata is fetched here; downloads still go through the download manager.
+
+mod rawg;
+mod wikidata;
+mod wikipedia;
 
 use crate::downloader::http::from_reqwest;
 use crate::error::{AppError, AppResult, ErrorCode};
+use futures_util::future::try_join_all;
 use reqwest::{Client, StatusCode, Url};
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
+use std::sync::Mutex;
 use std::time::Duration;
+use wikidata::Entity;
 
-const API_BASE: &str = "https://api.rawg.io/api";
-const PAGE_SIZE: u32 = 24;
-const MAX_TAGS: usize = 12;
+pub use wikipedia::{Block, Section};
 
-/// RAWG platform ids.
-pub const PLATFORM_PS4: u32 = 18;
-pub const PLATFORM_PS5: u32 = 187;
+/// Wikimedia asks API clients to identify themselves with a way to reach the maintainer.
+const USER_AGENT: &str = concat!(
+    "PS4Downloader/",
+    env!("CARGO_PKG_VERSION"),
+    " (https://github.com/ItsLeviathan/PS4-Downloader)"
+);
+/// Name matches come 50 at a time and most aren't games, so a search may read a few batches.
+const SEARCH_EXTRA_BATCHES: usize = 2;
+const SEARCH_MIN_CANDIDATES: usize = 20;
+const SEARCH_CACHE_LIMIT: usize = 64;
+const CARD_GENRES: usize = 2;
+const CARD_IMAGE_WIDTH: u32 = 400;
+const DETAILS_CACHE_LIMIT: usize = 64;
 
-pub struct GameDb {
-    client: Client,
+const PS4: &str = "Q5014725";
+const PS5: &str = "Q63184502";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PlatformFilter {
+    Ps4,
+    Ps5,
+    All,
 }
 
-impl Default for GameDb {
-    fn default() -> Self {
-        Self::new()
+impl PlatformFilter {
+    fn matches(self, entity: &Entity) -> bool {
+        match self {
+            Self::Ps4 => entity.has_item("P400", PS4),
+            Self::Ps5 => entity.has_item("P400", PS5),
+            Self::All => true,
+        }
     }
 }
 
@@ -31,25 +60,34 @@ impl Default for GameDb {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GameSummary {
-    pub id: u64,
-    pub slug: String,
+    /// Wikidata item id, e.g. "Q17154554".
+    pub id: String,
     pub name: String,
+    /// Short description such as "2015 action role-playing game".
+    pub summary: Option<String>,
+    /// "YYYY-MM-DD", "YYYY-MM" or "YYYY", depending on what is known.
     pub released: Option<String>,
-    pub tba: bool,
     pub image: Option<String>,
-    pub rating: f32,
-    pub ratings_count: u32,
-    pub metacritic: Option<u32>,
+    pub critic_score: Option<CriticScore>,
     pub genres: Vec<String>,
-    pub platforms: Vec<String>,
+    /// Short names of the PlayStation consoles it's on ("PS4", "PS5").
+    pub consoles: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CriticScore {
+    /// Out of 100.
+    pub score: u32,
+    /// "Metacritic" or "OpenCritic".
+    pub source: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GameSearchPage {
     pub results: Vec<GameSummary>,
-    pub count: u64,
-    pub next_page: Option<u32>,
+    pub next_offset: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -69,339 +107,327 @@ pub struct Trailer {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GameDetails {
-    pub id: u64,
-    pub slug: String,
-    pub name: String,
-    pub alternative_names: Vec<String>,
-    pub description: String,
-    pub released: Option<String>,
-    pub tba: bool,
-    pub image: Option<String>,
-    pub image_additional: Option<String>,
-    pub website: Option<String>,
+pub struct RawgRating {
     pub rating: f32,
     pub rating_top: u32,
     pub ratings_count: u32,
-    pub metacritic: Option<u32>,
-    pub playtime: u32,
-    pub esrb: Option<String>,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GameDetails {
+    pub id: String,
+    pub name: String,
+    pub summary: Option<String>,
+    pub sections: Vec<Section>,
+    pub released: Option<String>,
+    pub image: Option<String>,
+    /// Wide artwork for the page banner (from RAWG when available).
+    pub backdrop: Option<String>,
+    pub website: Option<String>,
+    pub wikipedia_url: Option<String>,
+    pub wikidata_url: String,
+    pub critic_score: Option<CriticScore>,
     pub genres: Vec<String>,
     pub platforms: Vec<PlatformRelease>,
     pub developers: Vec<String>,
     pub publishers: Vec<String>,
-    pub stores: Vec<String>,
-    pub tags: Vec<String>,
+    pub series: Vec<String>,
+    pub modes: Vec<String>,
+    pub age_ratings: Vec<String>,
+    pub alternative_names: Vec<String>,
+    pub consoles: Vec<String>,
     pub screenshots: Vec<String>,
     pub trailers: Vec<Trailer>,
-    pub rawg_url: String,
-}
-
-// ---- RAWG response shapes (only the fields we use) ------------------------
-
-#[derive(Deserialize)]
-struct Named {
-    #[serde(default)]
-    name: String,
-}
-
-#[derive(Deserialize)]
-struct Tag {
-    #[serde(default)]
-    name: String,
-    #[serde(default)]
-    language: String,
-}
-
-#[derive(Deserialize)]
-struct PlatformEntry {
-    platform: Named,
-    #[serde(default)]
-    released_at: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct StoreEntry {
-    store: Named,
-}
-
-#[derive(Deserialize)]
-struct RawGame {
-    id: u64,
-    #[serde(default)]
-    slug: String,
-    #[serde(default)]
-    name: String,
-    #[serde(default)]
-    released: Option<String>,
-    #[serde(default)]
-    tba: bool,
-    #[serde(default)]
-    background_image: Option<String>,
-    #[serde(default)]
-    rating: f32,
-    #[serde(default)]
-    ratings_count: u32,
-    #[serde(default)]
-    metacritic: Option<u32>,
-    #[serde(default, deserialize_with = "null_as_default")]
-    genres: Vec<Named>,
-    #[serde(default, deserialize_with = "null_as_default")]
-    platforms: Vec<PlatformEntry>,
-}
-
-#[derive(Deserialize)]
-struct RawDetails {
-    #[serde(flatten)]
-    game: RawGame,
-    #[serde(default, deserialize_with = "null_as_default")]
-    alternative_names: Vec<String>,
-    #[serde(default)]
-    description_raw: String,
-    #[serde(default)]
-    background_image_additional: Option<String>,
-    #[serde(default)]
-    website: Option<String>,
-    #[serde(default)]
-    rating_top: u32,
-    #[serde(default)]
-    playtime: u32,
-    #[serde(default)]
-    esrb_rating: Option<Named>,
-    #[serde(default, deserialize_with = "null_as_default")]
-    developers: Vec<Named>,
-    #[serde(default, deserialize_with = "null_as_default")]
-    publishers: Vec<Named>,
-    #[serde(default, deserialize_with = "null_as_default")]
-    stores: Vec<StoreEntry>,
-    #[serde(default, deserialize_with = "null_as_default")]
-    tags: Vec<Tag>,
-}
-
-#[derive(Deserialize)]
-struct RawList<T> {
-    #[serde(default)]
-    count: u64,
-    #[serde(default)]
-    next: Option<String>,
-    #[serde(default = "Vec::new")]
-    results: Vec<T>,
-}
-
-#[derive(Deserialize)]
-struct RawScreenshot {
-    image: String,
-}
-
-#[derive(Deserialize)]
-struct RawMovie {
-    #[serde(default)]
-    name: String,
-    #[serde(default)]
-    preview: Option<String>,
-    data: RawMovieData,
-}
-
-#[derive(Deserialize)]
-struct RawMovieData {
-    #[serde(rename = "480", default)]
-    low: Option<String>,
-    #[serde(default)]
-    max: Option<String>,
-}
-
-fn null_as_default<'de, D, T>(d: D) -> Result<T, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: Default + Deserialize<'de>,
-{
-    Ok(Option::<T>::deserialize(d)?.unwrap_or_default())
-}
-
-fn names(items: Vec<Named>) -> Vec<String> {
-    items.into_iter().map(|n| n.name).filter(|n| !n.is_empty()).collect()
-}
-
-/// RAWG sometimes returns empty strings instead of null.
-fn non_empty(value: Option<String>) -> Option<String> {
-    value.filter(|v| !v.trim().is_empty())
-}
-
-impl From<RawGame> for GameSummary {
-    fn from(g: RawGame) -> Self {
-        Self {
-            id: g.id,
-            slug: g.slug,
-            name: g.name,
-            released: non_empty(g.released),
-            tba: g.tba,
-            image: non_empty(g.background_image),
-            rating: g.rating,
-            ratings_count: g.ratings_count,
-            metacritic: g.metacritic,
-            genres: names(g.genres),
-            platforms: g.platforms.into_iter().map(|p| p.platform.name).collect(),
-        }
-    }
+    pub rawg: Option<RawgRating>,
 }
 
 // ---- Client ---------------------------------------------------------------
 
+pub struct GameDb {
+    client: Client,
+    searches: Mutex<HashMap<(String, u32, PlatformFilter), GameSearchPage>>,
+    /// Keyed by item id and RAWG key, since the key changes what a page includes.
+    details: Mutex<HashMap<(String, String), GameDetails>>,
+}
+
+impl Default for GameDb {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GameDb {
     pub fn new() -> Self {
         let client = Client::builder()
-            .user_agent(concat!("PS4Downloader/", env!("CARGO_PKG_VERSION")))
+            .user_agent(USER_AGENT)
             .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(20))
+            .timeout(Duration::from_secs(25))
             .build()
             .expect("static HTTP client configuration is valid");
-        Self { client }
+        Self { client, searches: Mutex::new(HashMap::new()), details: Mutex::new(HashMap::new()) }
     }
 
-    /// Searches RAWG. `platforms` narrows results to those RAWG platform ids (empty = all).
-    pub async fn search(&self, key: &str, query: &str, page: u32, platforms: &[u32]) -> AppResult<GameSearchPage> {
+    pub async fn search(&self, query: &str, offset: u32, platform: PlatformFilter) -> AppResult<GameSearchPage> {
         let query = query.trim();
         if query.is_empty() {
-            return Ok(GameSearchPage { results: Vec::new(), count: 0, next_page: None });
+            return Ok(GameSearchPage { results: Vec::new(), next_offset: None });
         }
-        let page = page.max(1);
-        let mut params = vec![
-            ("search", query.to_string()),
-            ("page", page.to_string()),
-            ("page_size", PAGE_SIZE.to_string()),
-        ];
-        if !platforms.is_empty() {
-            let ids: Vec<String> = platforms.iter().map(u32::to_string).collect();
-            params.push(("platforms", ids.join(",")));
+
+        let cache_key = (query.to_lowercase(), offset, platform);
+        if let Some(hit) = lock(&self.searches).get(&cache_key) {
+            return Ok(hit.clone());
         }
-        let list: RawList<RawGame> = self.get(key, "games", &params).await?;
-        Ok(GameSearchPage {
-            next_page: list.next.is_some().then_some(page + 1),
-            count: list.count,
-            results: list.results.into_iter().map(GameSummary::from).collect(),
-        })
-    }
 
-    /// Full details for one game, including screenshots and trailers.
-    pub async fn details(&self, key: &str, id: u64) -> AppResult<GameDetails> {
-        let base = format!("games/{id}");
-        let screenshots_path = format!("{base}/screenshots");
-        let movies_path = format!("{base}/movies");
-        let (raw, screenshots, movies) = tokio::join!(
-            self.get::<RawDetails>(key, &base, &[]),
-            self.get::<RawList<RawScreenshot>>(key, &screenshots_path, &[]),
-            self.get::<RawList<RawMovie>>(key, &movies_path, &[]),
-        );
-        let raw = raw?;
-        // Media is optional; a failure there shouldn't hide the details.
-        let screenshots = screenshots.map(|l| l.results).unwrap_or_default();
-        let movies = movies.map(|l| l.results).unwrap_or_default();
-
-        let RawDetails {
-            game,
-            alternative_names,
-            description_raw,
-            background_image_additional,
-            website,
-            rating_top,
-            playtime,
-            esrb_rating,
-            developers,
-            publishers,
-            stores,
-            tags,
-        } = raw;
-        Ok(GameDetails {
-            id: game.id,
-            rawg_url: format!("https://rawg.io/games/{}", game.slug),
-            slug: game.slug,
-            name: game.name,
-            alternative_names,
-            description: description_raw.trim().to_string(),
-            released: non_empty(game.released),
-            tba: game.tba,
-            image: non_empty(game.background_image),
-            image_additional: non_empty(background_image_additional),
-            website: non_empty(website),
-            rating: game.rating,
-            rating_top,
-            ratings_count: game.ratings_count,
-            metacritic: game.metacritic,
-            playtime,
-            esrb: esrb_rating.map(|e| e.name).filter(|n| !n.is_empty()),
-            genres: names(game.genres),
-            platforms: game
-                .platforms
-                .into_iter()
-                .map(|p| PlatformRelease { name: p.platform.name, released_at: non_empty(p.released_at) })
-                .collect(),
-            developers: names(developers),
-            publishers: names(publishers),
-            stores: stores.into_iter().map(|s| s.store.name).filter(|n| !n.is_empty()).collect(),
-            tags: tags
-                .into_iter()
-                .filter(|t| t.language == "eng" && !t.name.is_empty())
-                .map(|t| t.name)
-                .take(MAX_TAGS)
-                .collect(),
-            screenshots: screenshots.into_iter().map(|s| s.image).collect(),
-            trailers: movies
-                .into_iter()
-                .filter_map(|m| {
-                    let url = m.data.max.or(m.data.low)?;
-                    Some(Trailer { name: m.name, preview: non_empty(m.preview), url })
-                })
-                .collect(),
-        })
-    }
-
-    async fn get<T: DeserializeOwned>(&self, key: &str, path: &str, params: &[(&str, String)]) -> AppResult<T> {
-        let key = key.trim();
-        if key.is_empty() {
-            return Err(missing_key());
-        }
-        let mut url = Url::parse(&format!("{API_BASE}/{path}")).map_err(|e| AppError::internal(e.to_string()))?;
-        {
-            let mut query = url.query_pairs_mut();
-            query.append_pair("key", key);
-            for (name, value) in params {
-                query.append_pair(name, value);
+        // Name search is cheap; collect likely games first, then fetch their full items once.
+        // The first batch usually decides; the next ones are read together when it's thin.
+        let first = wikidata::search(&self.client, query, offset).await?;
+        let mut candidates = first.ids;
+        let mut next_offset = first.next_offset;
+        if let Some(next) = next_offset.filter(|_| candidates.len() < SEARCH_MIN_CANDIDATES) {
+            let offsets: Vec<u32> = (0..SEARCH_EXTRA_BATCHES as u32).map(|i| next + i * wikidata::PAGE).collect();
+            let batches = try_join_all(offsets.iter().map(|o| wikidata::search(&self.client, query, *o))).await?;
+            next_offset = None;
+            for batch in batches {
+                next_offset = batch.next_offset;
+                for id in batch.ids {
+                    if !candidates.contains(&id) {
+                        candidates.push(id);
+                    }
+                }
+                if next_offset.is_none() {
+                    break;
+                }
             }
         }
-        let response = self.client.get(url).send().await.map_err(|e| from_reqwest(&e.without_url()))?;
-        let status = response.status();
-        if !status.is_success() {
-            return Err(status_error(status));
+        let games: Vec<Entity> = wikidata::entities(&self.client, &candidates)
+            .await?
+            .into_iter()
+            .filter(|e| e.is_game() && platform.matches(e))
+            .collect();
+
+        // Genre names and cover art only decorate the cards; don't fail the search over them.
+        let genre_ids: Vec<String> =
+            games.iter().flat_map(|g| g.items("P136").into_iter().take(CARD_GENRES)).collect();
+        let titles: Vec<String> = games.iter().filter_map(|g| g.wiki_title.clone()).collect();
+        let (labels, covers) = tokio::join!(
+            wikidata::labels(&self.client, &genre_ids),
+            wikipedia::thumbnails(&self.client, &titles, CARD_IMAGE_WIDTH),
+        );
+        let labels = labels.unwrap_or_default();
+        let covers = covers.unwrap_or_default();
+
+        let results = games
+            .into_iter()
+            .map(|g| GameSummary {
+                image: g.wiki_title.as_ref().and_then(|t| covers.get(t).cloned()),
+                genres: names(&labels, g.items("P136").iter().take(CARD_GENRES)),
+                released: g.earliest_release(),
+                critic_score: g.critic_score(Some(PS4)),
+                consoles: consoles(&g),
+                summary: g.description.clone(),
+                name: g.name(),
+                id: g.id,
+            })
+            .collect();
+        let page = GameSearchPage { results, next_offset };
+        let mut cache = lock(&self.searches);
+        if cache.len() >= SEARCH_CACHE_LIMIT {
+            cache.clear();
         }
-        let body = response.bytes().await.map_err(|e| from_reqwest(&e.without_url()))?;
-        serde_json::from_slice(&body).map_err(|e| {
-            AppError::new(ErrorCode::ServerError, "RAWG sent a response PS4 Downloader couldn't read. Try again later.")
-                .with_details(e.to_string())
-        })
+        cache.insert(cache_key, page.clone());
+        Ok(page)
+    }
+
+    /// Full details for one game. `rawg_key` (may be empty) adds RAWG media and ratings.
+    pub async fn details(&self, id: &str, rawg_key: &str) -> AppResult<GameDetails> {
+        if !wikidata::is_item_id(id) {
+            return Err(AppError::new(ErrorCode::NotFound, "That game couldn't be found."));
+        }
+        let rawg_key = rawg_key.trim();
+        let with_rawg = !rawg_key.is_empty();
+        let cache_key = (id.to_string(), rawg_key.to_string());
+        if let Some(hit) = lock(&self.details).get(&cache_key) {
+            return Ok(hit.clone());
+        }
+
+        let entity = wikidata::entities(&self.client, &[id.to_string()])
+            .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| AppError::new(ErrorCode::NotFound, "That game couldn't be found on Wikidata."))?;
+        let name = entity.name();
+
+        let mut referenced = Vec::new();
+        for prop in ["P136", "P178", "P123", "P400", "P179", "P404", "P852", "P908"] {
+            referenced.extend(entity.items(prop));
+        }
+        let title = entity.wiki_title.clone();
+        let (labels, page, images, extras) = tokio::join!(
+            wikidata::labels(&self.client, &referenced),
+            async {
+                match &title {
+                    Some(t) => wikipedia::page(&self.client, t).await.map(Some),
+                    None => Ok(None),
+                }
+            },
+            async {
+                match &title {
+                    Some(t) => wikipedia::screenshots(&self.client, t).await,
+                    None => Ok(Vec::new()),
+                }
+            },
+            async {
+                if with_rawg {
+                    rawg::find(&self.client, rawg_key, &name).await.ok().flatten()
+                } else {
+                    None
+                }
+            },
+        );
+        let labels = labels?;
+        // The article is the description; without it the facts alone are still useful.
+        let page = page.unwrap_or(None);
+        let images = images.unwrap_or_default();
+
+        let releases = entity.release_dates();
+        let platforms = entity
+            .items("P400")
+            .iter()
+            .filter_map(|q| {
+                let name = labels.get(q)?.clone();
+                // Dates without a platform apply to all of them.
+                let released_at = releases
+                    .iter()
+                    .filter(|(p, _)| p.as_deref() == Some(q))
+                    .map(|(_, d)| d)
+                    .min()
+                    .or_else(|| releases.iter().filter(|(p, _)| p.is_none()).map(|(_, d)| d).min())
+                    .cloned();
+                Some(PlatformRelease { name, released_at })
+            })
+            .collect();
+
+        let cover = page.as_ref().and_then(|p| p.cover.clone());
+        let mut screenshots = images;
+        let mut trailers = Vec::new();
+        let mut backdrop = None;
+        let mut rating = None;
+        if let Some(extras) = extras {
+            // RAWG screenshots are larger and cleaner, so they go first.
+            screenshots = extras.screenshots.into_iter().chain(screenshots).collect();
+            trailers = extras.trailers;
+            backdrop = extras.background;
+            rating = extras.rating;
+        }
+        screenshots.dedup();
+
+        let details = GameDetails {
+            summary: entity.description.clone(),
+            sections: page.as_ref().map(|p| p.sections.clone()).unwrap_or_default(),
+            released: entity.earliest_release(),
+            image: cover,
+            backdrop,
+            website: entity.strings("P856").into_iter().next(),
+            wikipedia_url: page.map(|p| p.url),
+            wikidata_url: format!("https://www.wikidata.org/wiki/{}", entity.id),
+            critic_score: entity.critic_score(Some(PS4)),
+            genres: names(&labels, entity.items("P136").iter()),
+            platforms,
+            developers: names(&labels, entity.items("P178").iter()),
+            publishers: names(&labels, entity.items("P123").iter()),
+            series: names(&labels, entity.items("P179").iter()),
+            modes: names(&labels, entity.items("P404").iter()),
+            age_ratings: names(&labels, entity.items("P852").iter().chain(entity.items("P908").iter())),
+            alternative_names: entity.aliases.iter().filter(|a| **a != name).cloned().collect(),
+            consoles: consoles(&entity),
+            screenshots,
+            trailers,
+            rawg: rating,
+            id: entity.id.clone(),
+            name,
+        };
+
+        let mut cache = lock(&self.details);
+        if cache.len() >= DETAILS_CACHE_LIMIT {
+            cache.clear();
+        }
+        cache.insert(cache_key, details.clone());
+        Ok(details)
     }
 }
 
-pub fn missing_key() -> AppError {
-    AppError::new(
-        ErrorCode::ApiKey,
-        "Add your free RAWG API key to search for games. You can get one at rawg.io/apidocs.",
-    )
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-fn status_error(status: StatusCode) -> AppError {
-    let details = format!("RAWG returned HTTP {}", status.as_u16());
-    let (code, message) = match status {
-        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
-            (ErrorCode::ApiKey, "RAWG didn't accept your API key. Check the key in Settings.")
+fn names<'a>(labels: &HashMap<String, String>, ids: impl Iterator<Item = &'a String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for id in ids {
+        if let Some(label) = labels.get(id) {
+            if !out.contains(label) {
+                out.push(label.clone());
+            }
         }
-        StatusCode::NOT_FOUND => (ErrorCode::NotFound, "RAWG doesn't have a page for that game."),
-        StatusCode::TOO_MANY_REQUESTS => {
-            (ErrorCode::RateLimited, "Too many searches in a short time. Wait a moment and try again.")
+    }
+    out
+}
+
+fn consoles(entity: &Entity) -> Vec<String> {
+    [(PS4, "PS4"), (PS5, "PS5")]
+        .into_iter()
+        .filter(|(q, _)| entity.has_item("P400", q))
+        .map(|(_, n)| n.to_string())
+        .collect()
+}
+
+// ---- HTTP -----------------------------------------------------------------
+
+#[derive(Clone, Copy)]
+enum Service {
+    Wikimedia,
+    Rawg,
+}
+
+async fn get_json(client: &Client, url: Url, service: Service) -> AppResult<Value> {
+    let response = client.get(url).send().await.map_err(|e| from_reqwest(&e.without_url()))?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(status_error(status, service));
+    }
+    let body = response.bytes().await.map_err(|e| from_reqwest(&e.without_url()))?;
+    serde_json::from_slice(&body).map_err(|e| {
+        AppError::new(ErrorCode::ServerError, "The game database sent a response PS4 Downloader couldn't read.")
+            .with_details(e.to_string())
+    })
+}
+
+fn status_error(status: StatusCode, service: Service) -> AppError {
+    let name = match service {
+        Service::Wikimedia => "Wikipedia",
+        Service::Rawg => "RAWG",
+    };
+    let details = format!("{name} returned HTTP {}", status.as_u16());
+    let (code, message) = match (status, service) {
+        (StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN, Service::Rawg) => {
+            (ErrorCode::ApiKey, "RAWG didn't accept your API key. Check the key in Settings.".to_string())
         }
-        s if s.is_server_error() => (ErrorCode::ServerError, "RAWG is temporarily unavailable. Try again later."),
-        _ => (ErrorCode::HttpStatus, "RAWG returned an unexpected response."),
+        (StatusCode::TOO_MANY_REQUESTS, _) => (
+            ErrorCode::RateLimited,
+            format!("{name} is getting too many requests right now. Wait a few seconds and try again."),
+        ),
+        (s, _) if s.is_server_error() => {
+            (ErrorCode::ServerError, format!("{name} is temporarily unavailable. Try again later."))
+        }
+        (StatusCode::NOT_FOUND, _) => (ErrorCode::NotFound, "That game couldn't be found.".to_string()),
+        _ => (ErrorCode::HttpStatus, format!("{name} returned an unexpected response.")),
     };
     AppError::new(code, message).with_details(details)
+}
+
+fn api_url(base: &str, params: &[(&str, &str)]) -> AppResult<Url> {
+    Url::parse_with_params(base, params).map_err(|e| AppError::internal(e.to_string()))
 }
 
 #[cfg(test)]
@@ -409,48 +435,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_search_results() {
-        let json = r#"{
-            "count": 2, "next": "https://api.rawg.io/api/games?page=2",
-            "results": [
-                {"id": 1, "slug": "bloodborne", "name": "Bloodborne", "released": "2015-03-24",
-                 "background_image": "https://media.rawg.io/a.jpg", "rating": 4.4, "ratings_count": 10,
-                 "metacritic": 92, "genres": [{"name": "Action"}],
-                 "platforms": [{"platform": {"id": 18, "name": "PlayStation 4"}}]},
-                {"id": 2, "slug": "x", "name": "X", "released": null, "background_image": "",
-                 "genres": null, "platforms": null}
-            ]
-        }"#;
-        let list: RawList<RawGame> = serde_json::from_str(json).unwrap();
-        assert_eq!(list.count, 2);
-        let games: Vec<GameSummary> = list.results.into_iter().map(GameSummary::from).collect();
-        assert_eq!(games[0].platforms, ["PlayStation 4"]);
-        assert_eq!(games[0].metacritic, Some(92));
-        assert_eq!(games[1].image, None);
-        assert!(games[1].genres.is_empty());
-    }
-
-    #[test]
-    fn parses_details_and_movies() {
-        let json = r#"{"id": 1, "slug": "s", "name": "S", "description_raw": " Text ",
-            "esrb_rating": null, "developers": [{"name": "FromSoftware"}], "publishers": null,
-            "tags": [{"name": "Souls-like", "language": "eng"}, {"name": "x", "language": "rus"}],
-            "stores": [{"store": {"name": "PlayStation Store"}}]}"#;
-        let raw: RawDetails = serde_json::from_str(json).unwrap();
-        assert_eq!(raw.game.name, "S");
-        assert_eq!(names(raw.developers), ["FromSoftware"]);
-        assert_eq!(raw.tags.len(), 2);
-
-        let movie: RawMovie =
-            serde_json::from_str(r#"{"name": "Trailer", "preview": "p.jpg", "data": {"480": "a.mp4", "max": "b.mp4"}}"#)
-                .unwrap();
-        assert_eq!(movie.data.max.as_deref(), Some("b.mp4"));
-    }
-
-    #[test]
     fn maps_http_errors() {
-        assert_eq!(status_error(StatusCode::UNAUTHORIZED).code, ErrorCode::ApiKey);
-        assert_eq!(status_error(StatusCode::TOO_MANY_REQUESTS).code, ErrorCode::RateLimited);
-        assert_eq!(status_error(StatusCode::BAD_GATEWAY).code, ErrorCode::ServerError);
+        assert_eq!(status_error(StatusCode::UNAUTHORIZED, Service::Rawg).code, ErrorCode::ApiKey);
+        assert_eq!(status_error(StatusCode::FORBIDDEN, Service::Wikimedia).code, ErrorCode::HttpStatus);
+        assert_eq!(status_error(StatusCode::TOO_MANY_REQUESTS, Service::Wikimedia).code, ErrorCode::RateLimited);
+        assert_eq!(status_error(StatusCode::BAD_GATEWAY, Service::Rawg).code, ErrorCode::ServerError);
     }
 }

@@ -22,7 +22,8 @@ checksums when you provide one.
 - **Checksum verification** (SHA-256, SHA-1, MD5). A file is shown as **Verified** only after a real comparison. Files that fail verification are never moved to Completed.
 - **History** of completed, failed, and cancelled downloads. Removing an entry never deletes a completed file unless you tick "Also delete the file from disk".
 - **Desktop notifications** for completed downloads, failed downloads, and storage problems. Each type can be turned off.
-- **Game search.** Search games by name (PS4, PS5 or all platforms) and open a details page with cover art, description, genres, developer and publisher, release dates, Metacritic score and ratings, screenshots and trailers. Game data comes from [RAWG](https://rawg.io/apidocs). Add your free API key on the Games page or in Settings.
+- **Game search.** Search any game by name (PS4, PS5 or all platforms) and open a details page with box art, the Wikipedia article (overview, gameplay, story, development, reception), developer and publisher, release dates per platform, critic score, series, game modes and age ratings. No account needed: data comes from [Wikipedia](https://en.wikipedia.org) and [Wikidata](https://www.wikidata.org). Optionally add a free [RAWG](https://rawg.io/apidocs) API key in Settings for trailers, more screenshots and user ratings.
+- **Homebrew catalog.** Official releases of popular PS4 homebrew (GoldHEN, Homebrew Store, Apollo Save Tool, GoldHEN Cheats Manager and Plugins, Remote PKG Installer, Payload Guest, an FTP server and ps4debug), read from each project's GitHub releases. One click sends a `.pkg` or payload to the download queue, with GitHub's SHA-256 digest checked when one is published. Release lists are cached for 15 minutes to stay under GitHub's anonymous rate limit.
 - **Themes:** dark (default), light, or follow the system.
 
 ## Tech stack

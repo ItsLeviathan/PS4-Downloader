@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { api } from "../lib/api";
 import { runAction, useApp } from "../stores/app";
+import { clearGameDetails } from "../stores/games";
 import { Button } from "./Button";
 
 export const RAWG_KEY_PAGE = "https://rawg.io/apidocs";
@@ -18,7 +19,11 @@ export function ApiKeyForm({ onSaved }: { onSaved?: () => void }) {
     setBusy(true);
     const ok = await runAction(async () => setSettings(await api.updateSettings({ ...settings, rawgApiKey: key.trim() })));
     setBusy(false);
-    if (ok) onSaved?.();
+    if (ok) {
+      // Game pages opened before now were built without (or with the old) key.
+      clearGameDetails();
+      onSaved?.();
+    }
   };
 
   const changed = key.trim() !== settings.rawgApiKey;

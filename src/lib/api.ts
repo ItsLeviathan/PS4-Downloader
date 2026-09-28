@@ -4,6 +4,7 @@ import type {
   DownloadRecord,
   GameDetails,
   GameSearchPage,
+  HomebrewApp,
   PlatformFilter,
   Settings,
   StorageFolder,
@@ -49,8 +50,9 @@ export const api = {
   resumeAll: () => call<void>("resume_all"),
   reveal: (id: string) => call<void>("reveal_download", { id }),
   openFolder: (folder: StorageFolder) => call<void>("open_storage_folder", { folder }),
-  searchGames: (query: string, page: number, platform: PlatformFilter) =>
-    call<GameSearchPage>("search_games", { query, page, platform }),
-  getGame: (id: number) => call<GameDetails>("get_game", { id }),
+  searchGames: (query: string, offset: number, platform: PlatformFilter) =>
+    call<GameSearchPage>("search_games", { query, offset, platform }),
+  getGame: (id: string) => call<GameDetails>("get_game", { id }),
+  listHomebrew: (refresh = false) => call<HomebrewApp[]>("list_homebrew", { refresh }),
   openExternal: (url: string) => call<void>("open_external", { url }),
 };

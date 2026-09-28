@@ -4,6 +4,7 @@ pub mod downloader;
 pub mod error;
 pub mod events;
 pub mod games;
+pub mod homebrew;
 pub mod settings;
 pub mod state;
 pub mod storage;
@@ -26,6 +27,7 @@ pub fn run() {
             let manager = tauri::async_runtime::block_on(async move { Manager::load(data_dir, sink) });
             app.manage(manager);
             app.manage(games::GameDb::new());
+            app.manage(homebrew::HomebrewCatalog::new());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -47,6 +49,7 @@ pub fn run() {
             commands::open_storage_folder,
             commands::search_games,
             commands::get_game,
+            commands::list_homebrew,
             commands::open_external,
         ])
         .build(tauri::generate_context!())
